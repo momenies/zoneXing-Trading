@@ -49,6 +49,11 @@ def parse_args(argv=None):
     src.add_argument("--end", default=None)
     src.add_argument("--seed", type=int, nargs="+", default=[7],
                      help="synthetic RNG seed(s); several seeds run a robustness sweep")
+    src.add_argument("--synthetic-start", default="2025-06-01",
+                     help="first timestamp for --source synthetic")
+    src.add_argument("--save-csv", default=None, metavar="DIR",
+                     help="write the loaded candles to DIR as <CODE>.csv so a "
+                          "fetch can be cached and re-run offline")
 
     strat = p.add_argument_group("strategy")
     strat.add_argument("--pivot", choices=list(PIVOT_MODES), default="fractal",
@@ -99,12 +104,19 @@ def load_data(args, seed=None):
         note = "real candles from exchange API"
     else:
         dm = data_mod.synthetic(args.codes, bars=args.bars,
-                                interval=args.interval, seed=seed)
+                                interval=args.interval, seed=seed,
+                                start=args.synthetic_start)
         note = (f"SYNTHETIC candles (seed={seed}) — mechanics only, "
                 f"NOT evidence of real edge")
     if args.start or args.end:
         dm = data_mod.slice_window(dm, args.start, args.end)
         dm = data_mod.align(dm)
+    if args.save_csv:
+        os.makedirs(args.save_csv, exist_ok=True)
+        for code, df in dm.items():
+            df.to_csv(os.path.join(args.save_csv, f"{code}.csv"),
+                      index_label="timestamp")
+        print(f"Candles cached to {args.save_csv}/")
     return dm, note
 
 
