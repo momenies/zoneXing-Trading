@@ -31,6 +31,7 @@ from backtest.audit import audit_constraints, check_causality  # noqa: E402
 from backtest.causal import PIVOT_MODES, build_engine      # noqa: E402
 from backtest.config import DEFAULT_CODES, BacktestConfig  # noqa: E402
 from backtest.engine import run_backtest                   # noqa: E402
+from backtest.env import describe, load_env, redact        # noqa: E402
 from backtest.metrics import compute_metrics, format_report  # noqa: E402
 
 
@@ -217,6 +218,8 @@ def main(argv=None):
         invest_frac=args.invest_frac, funding_rate_8h=args.funding_8h,
     )
     modes = list(PIVOT_MODES) if args.compare else [args.pivot]
+    if args.source == "exchange":
+        print(f"Credentials: {describe(load_env())}")
 
     print(f"Costs: taker {cfg.taker_rate:.4%} + slippage {cfg.slippage:.4%} "
           f"per side, leverage {cfg.leverage:g}, invest_frac {cfg.invest_frac:g}, "
@@ -241,8 +244,11 @@ def main(argv=None):
         )
     except ConnectionError as exc:
         raise SystemExit(
-            f"{exc}\nNo exchange reachable. Use --source csv with your own candles "
-            f"(see data/README.md), or --source synthetic."
+            redact(str(exc), load_env())
+            + "\nNo exchange reachable. Note that candle endpoints are public: an "
+            "API key does not help if the connection itself is blocked.\n"
+            "Use --source csv with your own candles (see data/README.md), or "
+            "--source synthetic."
         )
     n = len(next(iter(data_map.values())))
     print(f"Data: {note}")

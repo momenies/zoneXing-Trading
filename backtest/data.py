@@ -23,6 +23,8 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from .env import load_env
+
 OHLCV = ["open", "high", "low", "close", "volume"]
 
 _INTERVAL_MINUTES = {
@@ -92,6 +94,8 @@ def fetch_exchange(
     venue: str = "auto",
 ) -> Dict[str, pd.DataFrame]:
     """Fetch real candles. Raises ``ConnectionError`` if no venue is reachable."""
+    if venue == "auto":
+        venue = load_env().get("EXCHANGE_VENUE", "auto")
     venues = ["okx", "binance"] if venue == "auto" else [venue]
     last_err: Optional[Exception] = None
     for v in venues:
@@ -105,13 +109,32 @@ def fetch_exchange(
     raise ConnectionError(f"no exchange reachable ({venues}): {last_err}")
 
 
-def _http_json(url: str, timeout: int = 30) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "zonexing-backtest/1.0"})
+def _http_json(url: str, timeout: int = 30, headers: Optional[dict] = None) -> dict:
+    hdrs = {"User-Agent": "zonexing-backtest/1.0"}
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, headers=hdrs)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
 
 
+def _venue_headers(venue: str) -> dict:
+    """Credentials for candle endpoints.
+
+    Candles are PUBLIC on both venues — no key is required to fetch them. A
+    Binance key raises the per-key rate limit, which matters when pulling tens
+    of thousands of bars, so it is sent when present. OKX rate-limits public
+    market data per IP regardless of authentication, so a key would buy nothing
+    there and is deliberately not sent: no reason to put a secret on the wire
+    for an endpoint that ignores it.
+    """
+    env = load_env()
+    if venue == "binance" and env.get("BINANCE_API_KEY"):
+        return {"X-MBX-APIKEY": env["BINANCE_API_KEY"]}
+    return {}
+
+
 def _fetch_one(venue, code, interval, bars, end) -> pd.DataFrame:
+    headers = _venue_headers(venue)
     step_ms = _INTERVAL_MINUTES[interval] * 60_000
     end_ms = int((end or pd.Timestamp.utcnow()).timestamp() * 1000)
     rows: List[List[float]] = []
@@ -124,7 +147,7 @@ def _fetch_one(venue, code, interval, bars, end) -> pd.DataFrame:
                 "https://www.okx.com/api/v5/market/history-candles"
                 f"?instId={code}&bar={interval}&limit={want}&after={cursor}"
             )
-            payload = _http_json(url)
+            payload = _http_json(url, headers=headers)
             if payload.get("code") != "0":
                 raise RuntimeError(f"okx error: {payload.get('msg')}")
             batch = [
@@ -141,7 +164,7 @@ def _fetch_one(venue, code, interval, bars, end) -> pd.DataFrame:
             )
             batch = [
                 [int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[5])]
-                for r in _http_json(url)
+                for r in _http_json(url, headers=headers)
             ]
         if not batch:
             break

@@ -30,6 +30,21 @@ timestamp,open,high,low,close,volume
 Bars must be 5-minute and the symbols must overlap in time — the loader
 intersects timestamps across all symbols so the gate lines up bar-for-bar.
 
+## API keys (optional)
+
+Candle endpoints on OKX and Binance are **public — no key is needed** to fetch
+them. A Binance key only raises the per-key rate limit, which helps when pulling
+tens of thousands of bars:
+
+```bash
+cp .env.example .env     # then fill in the values
+```
+
+`.env` is gitignored and never committed. Use a **read-only** key with no
+withdrawal and no trading permission — this project reads prices and places no
+orders. OKX rate-limits public market data per IP regardless of authentication,
+so no OKX key is sent on the wire.
+
 ## Getting the data
 
 This directory is empty because the sandbox that generated the harness has no

@@ -3,3 +3,8 @@ __pycache__/
 data/*.csv
 *.json
 !.github/**/*.json
+
+# secrets — never commit
+.env
+.env.local
+!.env.example
