@@ -13,6 +13,7 @@ Every source returns ``Dict[code, DataFrame]`` with columns
 """
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import time
@@ -44,17 +45,19 @@ def load_csv_dir(path: str, codes: List[str]) -> Dict[str, pd.DataFrame]:
     """
     data_map: Dict[str, pd.DataFrame] = {}
     for code in codes:
-        fp = os.path.join(path, f"{code}.csv")
-        if not os.path.exists(fp):
-            fp_alt = os.path.join(path, f"{code.replace('-', '')}.csv")
-            if not os.path.exists(fp_alt):
-                raise FileNotFoundError(f"no CSV for {code} in {path}")
-            fp = fp_alt
+        stems = [code, code.replace("-", "")]
+        candidates = [os.path.join(path, f"{stem}{ext}")
+                      for stem in stems for ext in (".csv", ".csv.gz")]
+        fp = next((c for c in candidates if os.path.exists(c)), None)
+        if fp is None:
+            raise FileNotFoundError(
+                f"no {code}.csv or {code}.csv.gz in {path}")
         data_map[code] = _read_one_csv(fp)
     return align(data_map)
 
 
 def _read_one_csv(fp: str) -> pd.DataFrame:
+    # pandas infers gzip from the .gz suffix
     df = pd.read_csv(fp)
     df.columns = [str(c).strip().lower() for c in df.columns]
 

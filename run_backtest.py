@@ -55,6 +55,9 @@ def parse_args(argv=None):
     src.add_argument("--save-csv", default=None, metavar="DIR",
                      help="write the loaded candles to DIR as <CODE>.csv so a "
                           "fetch can be cached and re-run offline")
+    src.add_argument("--gzip", action="store_true",
+                     help="with --save-csv, write .csv.gz (~6x smaller, small "
+                          "enough to commit and share)")
 
     strat = p.add_argument_group("strategy")
     strat.add_argument("--pivot", choices=list(PIVOT_MODES), default="fractal",
@@ -114,10 +117,11 @@ def load_data(args, seed=None):
         dm = data_mod.align(dm)
     if args.save_csv:
         os.makedirs(args.save_csv, exist_ok=True)
+        ext = ".csv.gz" if args.gzip else ".csv"
         for code, df in dm.items():
-            df.to_csv(os.path.join(args.save_csv, f"{code}.csv"),
+            df.to_csv(os.path.join(args.save_csv, f"{code}{ext}"),
                       index_label="timestamp")
-        print(f"Candles cached to {args.save_csv}/")
+        print(f"Candles cached to {args.save_csv}/*{ext}")
     return dm, note
 
 
