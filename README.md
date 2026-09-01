@@ -92,6 +92,23 @@ position is sized once at entry rather than re-sized every bar.
 
 Run the harness tests with `python3 tests/test_backtest.py` (or `pytest tests`).
 
+### Running it on Google Cloud
+
+Exchange APIs are unreachable from the environment this was built in, so the
+numbers below come from synthetic candles. `deploy/` packages the harness as a
+Cloud Run Job, where egress is open and the same run produces **real** numbers:
+
+```bash
+./deploy/deploy.sh YOUR_PROJECT_ID
+gcloud run jobs execute zonexing-backtest --region us-central1 --wait
+gcloud storage cat gs://YOUR_PROJECT_ID-zonexing-results/runs/latest/report.txt
+```
+
+The image is built by Cloud Build (no local Docker), results and fetched candles
+land in a GCS bucket, and the cached candles can be pulled back down to re-run
+everything offline. See [deploy/README.md](deploy/README.md) for configuration,
+scheduling, cost, and teardown.
+
 ## Validation findings
 
 ### 1. The fractal pivot rule uses future bars
