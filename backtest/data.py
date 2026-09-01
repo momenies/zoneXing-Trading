@@ -95,8 +95,13 @@ def fetch_exchange(
     bars: int = 20_000,
     end: Optional[pd.Timestamp] = None,
     venue: str = "auto",
+    progress=None,
 ) -> Dict[str, pd.DataFrame]:
-    """Fetch real candles. Raises ``ConnectionError`` if no venue is reachable."""
+    """Fetch real candles. Raises ``ConnectionError`` if no venue is reachable.
+
+    ``progress`` is an optional callable used to report partial counts, so a
+    long fetch shows movement in the logs instead of looking hung.
+    """
     if venue == "auto":
         venue = load_env().get("EXCHANGE_VENUE", "auto")
     venues = ["okx", "binance"] if venue == "auto" else [venue]
@@ -104,7 +109,8 @@ def fetch_exchange(
     for v in venues:
         try:
             data_map = {
-                code: _fetch_one(v, code, interval, bars, end) for code in codes
+                code: _fetch_one(v, code, interval, bars, end, progress)
+                for code in codes
             }
             return align(data_map)
         except Exception as exc:  # noqa: BLE001 - try the next venue
@@ -112,12 +118,33 @@ def fetch_exchange(
     raise ConnectionError(f"no exchange reachable ({venues}): {last_err}")
 
 
-def _http_json(url: str, timeout: int = 30, headers: Optional[dict] = None) -> dict:
+def _http_json(url: str, timeout: int = 30, headers: Optional[dict] = None,
+               attempts: int = 5) -> dict:
+    """GET JSON, retrying transient failures with exponential backoff.
+
+    A fetch of six symbols is ~2000 requests over several minutes. A single
+    429 or 5xx partway through would otherwise throw away all of it, so
+    rate-limit and server errors are retried; a 4xx that is not 429 is a real
+    error (bad symbol, bad interval) and fails immediately.
+    """
     hdrs = {"User-Agent": "zonexing-backtest/1.0"}
     hdrs.update(headers or {})
-    req = urllib.request.Request(url, headers=hdrs)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
+    last: Optional[Exception] = None
+
+    for attempt in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers=hdrs)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code != 429 and exc.code < 500:
+                raise
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last = exc
+        if attempt < attempts - 1:
+            time.sleep(min(2 ** attempt, 30))
+    raise RuntimeError(f"request failed after {attempts} attempts: {last}")
 
 
 def _venue_headers(venue: str) -> dict:
@@ -136,7 +163,7 @@ def _venue_headers(venue: str) -> dict:
     return {}
 
 
-def _fetch_one(venue, code, interval, bars, end) -> pd.DataFrame:
+def _fetch_one(venue, code, interval, bars, end, progress=None) -> pd.DataFrame:
     headers = _venue_headers(venue)
     step_ms = _INTERVAL_MINUTES[interval] * 60_000
     end_ms = int((end or pd.Timestamp.utcnow()).timestamp() * 1000)
@@ -144,7 +171,8 @@ def _fetch_one(venue, code, interval, bars, end) -> pd.DataFrame:
     cursor = end_ms
 
     while len(rows) < bars:
-        want = min(300 if venue == "okx" else 1000, bars - len(rows))
+        # OKX caps history-candles at 100 per request; Binance klines at 1000.
+        want = min(100 if venue == "okx" else 1000, bars - len(rows))
         if venue == "okx":
             url = (
                 "https://www.okx.com/api/v5/market/history-candles"
@@ -173,6 +201,8 @@ def _fetch_one(venue, code, interval, bars, end) -> pd.DataFrame:
             break
         rows.extend(batch)
         cursor = min(r[0] for r in batch)
+        if progress and len(rows) % 5000 < want:
+            progress(f"    {code}: {len(rows):,}/{bars:,} bars")
         time.sleep(0.12)  # be polite to the venue
 
     if not rows:

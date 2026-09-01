@@ -96,7 +96,7 @@ def main() -> int:
         note = "SYNTHETIC — smoke test only, not real market data"
     else:
         log("Fetching candles from exchange...")
-        data_map = data_mod.fetch_exchange(codes, interval, bars)
+        data_map = data_mod.fetch_exchange(codes, interval, bars, progress=log)
         note = "real candles from exchange API"
 
     index = next(iter(data_map.values())).index
