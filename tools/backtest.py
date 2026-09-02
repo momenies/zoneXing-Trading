@@ -275,22 +275,32 @@ def simulate_archived(data: Dict[str, pd.DataFrame], gate_code: str, initial: fl
 
 # ── reporting ───────────────────────────────────────────────────────────
 
-def report(results: List[Result]) -> None:
+def report(results: List[Result], out: Optional[Path] = None) -> None:
     rows = [r.summary() for r in results]
+    captured: List[str] = []
+
+    def emit(line: str = "") -> None:
+        print(line)
+        captured.append(line)
+
     head = f"{'strategy':<44} {'return':>9} {'maxDD':>8} {'PF':>7} {'win%':>7} {'trades':>7} {'fees':>9}"
-    print("\n" + head)
-    print("-" * len(head))
+    emit()
+    emit(head)
+    emit("-" * len(head))
     for s in rows:
         pf = "inf" if s["profit_factor"] == float("inf") else f"{s['profit_factor']:.2f}"
-        print(f"{s['label']:<44} {s['return_pct']:>8.2f}% {s['max_dd_pct']:>7.2f}% "
-              f"{pf:>7} {s['win_pct']:>6.1f}% {s['trades']:>7} {s['fees']:>8.2f}")
-    print()
+        emit(f"{s['label']:<44} {s['return_pct']:>8.2f}% {s['max_dd_pct']:>7.2f}% "
+             f"{pf:>7} {s['win_pct']:>6.1f}% {s['trades']:>7} {s['fees']:>8.2f}")
+    emit()
     for s in rows:
         if s["gate_violations"]:
-            print(f"  ⚠ {s['label']}: {s['gate_violations']} gate violations")
+            emit(f"  ⚠ {s['label']}: {s['gate_violations']} gate violations")
         if s["trades"]:
-            print(f"  {s['label']}: avg hold {s['avg_bars']:.1f} bars, "
-                  f"fees = {s['fees_pct_of_capital']:.2f}% of starting capital")
+            emit(f"  {s['label']}: avg hold {s['avg_bars']:.1f} bars, "
+                 f"fees = {s['fees_pct_of_capital']:.2f}% of starting capital")
+    if out:
+        out.write_text("\n".join(captured) + "\n", encoding="utf-8")
+        print(f"\nreport written to {out}")
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -311,6 +321,7 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--leverage", type=float, default=1.0)
     ap.add_argument("--taker", type=float, default=0.0005)
     ap.add_argument("--slippage", type=float, default=0.0005)
+    ap.add_argument("--out", help="also write the report to this file")
     args = ap.parse_args(argv)
 
     codes = [args.gate_symbol] + [c.strip().upper() for c in args.symbols.split(",") if c.strip()]
@@ -320,8 +331,15 @@ def main(argv: Optional[list] = None) -> int:
         data = load_csv_dir(Path(args.csv_dir), codes)
     else:
         print(f"fetching {args.days}d of {args.timeframe} from {args.exchange}…")
-        data = {c: fetch_history(args.exchange, c, args.timeframe, args.days,
-                                 args.market_type) for c in codes}
+        try:
+            data = {c: fetch_history(args.exchange, c, args.timeframe, args.days,
+                                     args.market_type) for c in codes}
+        except Exception as exc:
+            raise SystemExit(
+                f"\ncould not fetch history from {args.exchange}: {exc}\n"
+                "Check the server has outbound access to the exchange, that the symbol "
+                "exists for this --market-type, or export candles yourself and use "
+                "--csv-dir.")
     data = align(data, args.gate_symbol)
     n = len(data[args.gate_symbol])
     span_days = n * TF_MS[args.timeframe] / 86_400_000
@@ -338,7 +356,7 @@ def main(argv: Optional[list] = None) -> int:
     if args.compare:
         results.append(simulate_archived(data, args.gate_symbol, **sim_kw))
 
-    report(results)
+    report(results, Path(args.out) if args.out else None)
     if args.compare:
         print("\nThe archived row is shown only to size the look-ahead. Plan against the "
               "causal rows — those are what the bot can actually trade.")

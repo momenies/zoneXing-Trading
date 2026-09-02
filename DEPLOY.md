@@ -19,6 +19,21 @@
 
 ## 2. التنصيب
 
+### الطريق السريع: أمر واحد يجهّز ويشغّل الباك تست
+
+على سيرفرك مباشرة (لا يفتح أي صفقة ولا يحتاج مفاتيح API — يقرأ شموعاً عامة فقط):
+
+```bash
+git clone -b claude/bot-deployment-first-trade-52a7pw \
+  https://github.com/momenies/zoneXing-Trading.git ~/zonexing-trading
+bash ~/zonexing-trading/deploy/bootstrap.sh --exchange mexc --days 180
+```
+
+السكربت: ينشئ بيئة `venv`، يثبّت الاعتماديات، يشغّل الفحص الذاتي واختبارات
+الوحدة، ثم يحمّل 180 يوماً من شموع 5 دقائق ويشغّل الباك تست المقارن ويحفظ التقرير
+في `backtest_<exchange>_<days>d_<date>.txt`. خيارات: `--symbols`، `--market-type`،
+`--dir`.
+
 ### أ) Docker (الأسهل والموصى به)
 
 ```bash

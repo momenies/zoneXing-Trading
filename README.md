@@ -131,5 +131,8 @@ exchange-side reduce-only SL/TP, `--flatten` kill switch. `--health` reports
 whether the loop is still deciding on fresh bars and exits non-zero when it is
 not, so it can drive external monitoring.
 
+One-command server setup plus the causal backtest (no keys, no orders):
+`bash deploy/bootstrap.sh --exchange <id> --days 180`.
+
 Deployment (Docker, systemd, staged paper → testnet → small-live rollout):
 **[DEPLOY.md](DEPLOY.md)**.
