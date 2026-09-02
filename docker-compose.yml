@@ -1,0 +1,16 @@
+services:
+  zonexing:
+    build: .
+    image: zonexing-trading:latest
+    container_name: zonexing
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      STATE_DIR: /app/state
+    volumes:
+      - ./state:/app/state
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

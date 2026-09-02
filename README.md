@@ -48,6 +48,17 @@ TP/SL exits.
 | Jan 2026 (choppy) | **+11.55%** | −1.70% | 5.07 | 60.8% | 268 |
 | Jun–Dec 2025 (multi-regime) | **+163.14%** | −1.94% | 6.23 | 64.2% | 1823 |
 
+> ### ⚠️ These numbers are not reproducible live
+>
+> `_fractal_pivots` scores bar `i` with `lo[i - p : i + p + 1]` — a window that
+> reaches **8 bars (40 minutes) into the future**. The entries above could not
+> have been taken in real time. `python -m live.trader --selftest` quantifies it:
+> **255 pivot flags** were unknowable at their own bar, and **16 of every 300**
+> real-time signals differ from the hindsight signal on the same data.
+>
+> Re-run the backtest with the file's own causal `_donchian_pivots` before
+> sizing anything. See [DEPLOY.md](DEPLOY.md#7-لماذا-لن-تتكرر-نتائج-الباك-تست).
+
 **Constraint audit (automated, both windows):** BTC signal all-zero (never
 traded); **0** gate-direction violations across all altcoins.
 
@@ -77,3 +88,37 @@ traded); **0** gate-direction violations across all altcoins.
   (reduces return more than it loses).
 - Very high annualised Calmar/Sharpe figures are inflated by the 5m
   annualisation factor; the defensible metrics are return, <2% drawdown, PF 5–6.
+
+---
+
+## Live trading
+
+The `live/` package turns the archived strategy into a deployable bot. It keeps
+every rule (BTC 4h gate, dual-EMA confirmation, ATR trail, fixed TP/SL,
+gate-flip exit, min-hold, cooldown) and replaces the look-ahead pivot detector
+with a causal one.
+
+```
+live/config.py    env-driven configuration + safety interlocks
+live/engine.py    causal streaming signal engine (donchian | fractal_confirmed)
+live/broker.py    ccxt market data, PaperBroker (simulated) and LiveBroker (real)
+live/trader.py    runner loop, state persistence, reconciliation, risk guards
+live/selftest.py  offline causality + constraint audit
+live/demo.py      full-stack dry run on synthetic bars
+```
+
+```bash
+cp .env.example .env          # MODE=paper by default
+python -m live.trader --selftest    # causality + constraint audit, no network
+python -m tests.test_live           # unit tests
+python -m live.demo                 # watch the stack open trades offline
+python -m live.trader               # run (paper until you arm live mode)
+```
+
+Real orders need all three of `MODE=live`, API keys, and
+`I_UNDERSTAND_LIVE_RISK=yes`; anything less and the bot refuses to start.
+Risk guards: daily-loss halt, consecutive-loss halt, max open positions,
+exchange-side reduce-only SL/TP, `--flatten` kill switch.
+
+Deployment (Docker, systemd, staged paper → testnet → small-live rollout):
+**[DEPLOY.md](DEPLOY.md)**.
