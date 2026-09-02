@@ -127,7 +127,9 @@ two code paths together.
 Real orders need all three of `MODE=live`, API keys, and
 `I_UNDERSTAND_LIVE_RISK=yes`; anything less and the bot refuses to start.
 Risk guards: daily-loss halt, consecutive-loss halt, max open positions,
-exchange-side reduce-only SL/TP, `--flatten` kill switch.
+exchange-side reduce-only SL/TP, `--flatten` kill switch. `--health` reports
+whether the loop is still deciding on fresh bars and exits non-zero when it is
+not, so it can drive external monitoring.
 
 Deployment (Docker, systemd, staged paper → testnet → small-live rollout):
 **[DEPLOY.md](DEPLOY.md)**.

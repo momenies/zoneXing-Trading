@@ -99,6 +99,7 @@ IP السيرفر. الملف `.env` مستثنى من git ويجب أن يكو�
 ```bash
 python -m live.trader             # الحلقة المستمرة
 python -m live.trader --once      # دورة واحدة
+python -m live.trader --health    # هل البوت حيّ ويقرّر فعلاً؟ (يرجع 1 لو معطّل)
 python -m live.trader --status    # الحالة والصفقات المفتوحة
 python -m live.trader --flatten   # إغلاق كل الصفقات فوراً (زر الطوارئ)
 ```
@@ -110,6 +111,46 @@ python -m live.trader --flatten   # إغلاق كل الصفقات فوراً (�
 | `state.json` | المراكز المفتوحة والتبريد وحد الخسارة اليومي (يُستعاد بعد إعادة التشغيل) |
 | `trades.csv` | سجل كل صفقة مغلقة: الدخول، الخروج، السبب، الربح/الخسارة |
 | `zonexing.log` | سجل التشغيل الكامل |
+
+### كيف تتأكد أن البوت شغّال فعلاً
+
+كون العملية "تعمل" ليس دليلاً: بوت يفشل جلب بياناته كل دورة يبقى `active (running)`
+إلى الأبد بلا صفقة واحدة. `--health` يفحص الأثر الذي يتركه البوت فعلياً — آخر دورة
+اكتملت، عمر آخر شمعة رآها، اتجاه البوابة، آخر قرار لكل رمز، وعدد أخطاء الدورات:
+
+```bash
+python -m live.trader --health          # أو داخل الحاوية:
+docker compose exec zonexing python -m live.trader --health
+```
+
+مثال على بوت سليم:
+
+```
+[OK] last state write: 1.2 min ago (expected every 5 min)
+[OK] newest 5m bar seen: 2.0 min old
+[INFO] gate: DOWN (short only) | equity: 1201.96
+[INFO] last decision per symbol:
+         ETH-USDT: hold — no entry trigger
+[OK] cycle errors since start: 0
+HEALTHY
+```
+
+يرجع كود خروج `1` عند وجود مشكلة، فتقدر تربطه بمراقبة تلقائية:
+
+```bash
+# كل 15 دقيقة: نبّهني عبر تيليجرام لو البوت توقّف عن اتخاذ القرارات
+*/15 * * * * cd /opt/zonexing-trading && .venv/bin/python -m live.trader --health \
+  || curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+     -d chat_id=$CHAT -d text="⚠️ zoneXing غير سليم"
+```
+
+**ثلاث حالات شائعة وتفسيرها:**
+
+| ما تراه | المعنى |
+|---|---|
+| `[STALE] last state write` | الحلقة متوقفة — راجع `systemctl status zonexing` أو `docker compose ps` |
+| `[STALE] newest bar seen` | الاتصال بالمنصة مقطوع أو ساعة السيرفر خاطئة |
+| `HEALTHY` بلا صفقات منذ أيام | طبيعي غالباً: البوابة في المنطقة الميتة أو لا إشارات — تحقق من سطر `gate` |
 
 **الاسترجاع بعد إعادة التشغيل:** عند الإقلاع يقرأ البوت `state.json` ثم يطابقه مع
 مراكز المنصة الفعلية (`--live` فقط): مركز في الملف وغير موجود لدى المنصة يُمسح،

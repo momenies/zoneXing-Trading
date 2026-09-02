@@ -67,6 +67,8 @@ class Trader:
         self.day_key = ""
         self.day_start_equity = 0.0
         self.halted_reason = ""
+        self.heartbeat: dict = {}      # evidence the loop is actually deciding
+        self.cycle_errors = 0
         self._stop = False
         # lazy so --selftest works without ccxt/network
         self.data = None
@@ -108,6 +110,8 @@ class Trader:
         self.consecutive_losses = int(blob.get("consecutive_losses", 0))
         self.day_key = blob.get("day_key", "")
         self.day_start_equity = float(blob.get("day_start_equity", 0.0))
+        self.heartbeat = blob.get("heartbeat") or {}
+        self.cycle_errors = int(blob.get("cycle_errors", 0))
         held = [c for c, s in self.states.items() if s.position.side != FLAT]
         log.info("state restored — open positions: %s", held or "none")
 
@@ -120,6 +124,8 @@ class Trader:
             "consecutive_losses": self.consecutive_losses,
             "day_key": self.day_key,
             "day_start_equity": self.day_start_equity,
+            "heartbeat": self.heartbeat,
+            "cycle_errors": self.cycle_errors,
         }
         tmp = self.state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(blob, indent=2), encoding="utf-8")
@@ -321,6 +327,17 @@ class Trader:
                     continue
                 self.do_entry(code, dec, equity)
                 may_enter = self.entries_allowed(self.broker.equity())
+            self.heartbeat.setdefault("decisions", {})[code] = {
+                "action": dec.action, "reason": dec.reason,
+                "price": dec.price, "bar_ts": dec.bar_ts,
+            }
+
+        self.heartbeat.update({
+            "cycle_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "gate": gate,
+            "gate_bar_ts": int(gate_df.index[-1]),
+            "equity": equity,
+        })
         self.save_state()
 
     # ── main loop ───────────────────────────────────────────────────────
@@ -359,6 +376,7 @@ class Trader:
             try:
                 self.cycle()
             except Exception as exc:
+                self.cycle_errors += 1
                 log.exception("cycle failed: %s", exc)
                 self.notifier.send(f"⚠️ zoneXing cycle error: {exc}")
             if self._stop:
@@ -371,6 +389,87 @@ class Trader:
         self.save_state()
         log.info("stopped cleanly")
         self.notifier.send("🛑 zoneXing stopped")
+
+    def health(self) -> tuple:
+        """Answer one question: is this bot still deciding on fresh bars?
+
+        A live process is not proof of life — a bot whose data fetch fails every
+        cycle stays "running" forever. This checks the evidence the loop leaves
+        behind. Returns (ok, lines) so it can drive a non-zero exit code for
+        cron/monitoring.
+        """
+        cfg = self.cfg
+        lines: List[str] = []
+        problems: List[str] = []
+        now = datetime.now(timezone.utc)
+        tf_sec = cfg.timeframe_ms / 1000
+
+        if not self.state_path.is_file():
+            return False, [f"no state file at {self.state_path} — "
+                           "the bot has never completed a cycle here"]
+        blob = json.loads(self.state_path.read_text(encoding="utf-8"))
+        hb = blob.get("heartbeat") or {}
+
+        saved_at = blob.get("saved_at")
+        age = None
+        if saved_at:
+            age = (now - datetime.fromisoformat(saved_at)).total_seconds()
+            allowed = tf_sec * 2 + cfg.poll_buffer_sec + 60
+            mark = "OK" if age <= allowed else "STALE"
+            lines.append(f"[{mark}] last state write: {age / 60:.1f} min ago "
+                         f"(expected every {tf_sec / 60:.0f} min)")
+            if age > allowed:
+                problems.append("the loop has not completed a cycle recently — "
+                                "check the service is running and the logs")
+
+        cycle_at = hb.get("cycle_at")
+        if not cycle_at:
+            problems.append("no cycle heartbeat recorded — the bot may be failing "
+                            "before it reaches a decision (data fetch? credentials?)")
+        else:
+            bar_ts = hb.get("gate_bar_ts")
+            if bar_ts:
+                bar_age = (now.timestamp() * 1000 - bar_ts) / 1000
+                mark = "OK" if bar_age <= tf_sec * 3 else "STALE"
+                lines.append(f"[{mark}] newest {cfg.timeframe} bar seen: "
+                             f"{bar_age / 60:.1f} min old")
+                if bar_age > tf_sec * 3:
+                    problems.append("market data is behind — the exchange feed may be "
+                                    "blocked or the server clock is wrong")
+            gate = hb.get("gate")
+            gate_txt = {1.0: "UP (long only)", -1.0: "DOWN (short only)",
+                        0.0: "FLAT (no new entries)"}.get(gate, str(gate))
+            lines.append(f"[INFO] gate: {gate_txt} | equity: {hb.get('equity', 0):.2f}")
+
+        decisions = (hb.get("decisions") or {})
+        if decisions:
+            lines.append("[INFO] last decision per symbol:")
+            for code, d in decisions.items():
+                lines.append(f"         {code}: {d.get('action')} — {d.get('reason')}")
+        elif cycle_at:
+            problems.append("a cycle ran but no symbol was evaluated — check SYMBOLS")
+
+        errors = int(blob.get("cycle_errors", 0))
+        lines.append(f"[{'OK' if not errors else 'WARN'}] cycle errors since start: {errors}")
+
+        halted = blob.get("halted_reason") or self.halted_reason
+        if halted:
+            problems.append(f"entries halted: {halted}")
+
+        open_pos = [c for c, d in (blob.get("symbols") or {}).items()
+                    if (d.get("position") or {}).get("side")]
+        lines.append(f"[INFO] open positions: {', '.join(open_pos) if open_pos else 'none'}")
+
+        trades = self.cfg.state_dir / TRADE_LOG
+        if trades.is_file():
+            rows = trades.read_text(encoding="utf-8").strip().splitlines()
+            lines.append(f"[INFO] closed trades logged: {max(0, len(rows) - 1)}")
+        else:
+            lines.append("[INFO] closed trades logged: 0 (none closed yet)")
+
+        for pr in problems:
+            lines.append(f"[PROBLEM] {pr}")
+        return (not problems), lines
 
     def status(self) -> str:
         lines = [f"mode={self.cfg.mode} exchange={self.cfg.exchange_id}/{self.cfg.market_type}",
@@ -392,6 +491,8 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--env", help="path to a .env file")
     ap.add_argument("--once", action="store_true", help="run a single cycle then exit")
     ap.add_argument("--status", action="store_true", help="print saved state and exit")
+    ap.add_argument("--health", action="store_true",
+                    help="check the bot is alive and deciding; exit 1 if not")
     ap.add_argument("--flatten", action="store_true", help="close all positions and exit")
     ap.add_argument("--selftest", action="store_true",
                     help="offline constraint audit — no network, no keys")
@@ -408,6 +509,13 @@ def main(argv: Optional[list] = None) -> int:
         return 2
     setup_logging(cfg)
     trader = Trader(cfg)
+
+    if args.health:
+        trader.load_state()
+        ok, lines = trader.health()
+        print("\n".join(lines))
+        print("\nHEALTHY" if ok else "\nUNHEALTHY — see [PROBLEM] lines above")
+        return 0 if ok else 1
 
     if args.status:
         trader.load_state()
