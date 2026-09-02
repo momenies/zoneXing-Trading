@@ -105,6 +105,7 @@ live/broker.py    ccxt market data, PaperBroker (simulated) and LiveBroker (real
 live/trader.py    runner loop, state persistence, reconciliation, risk guards
 live/selftest.py  offline causality + constraint audit
 live/demo.py      full-stack dry run on synthetic bars
+tools/backtest.py backtest the live rule on real history (--compare)
 ```
 
 ```bash
@@ -113,7 +114,15 @@ python -m live.trader --selftest    # causality + constraint audit, no network
 python -m tests.test_live           # unit tests
 python -m live.demo                 # watch the stack open trades offline
 python -m live.trader               # run (paper until you arm live mode)
+
+python -m tools.backtest --exchange okx --days 180 --compare
 ```
+
+`tools/backtest.py` imports `live.engine` rather than re-implementing the rules,
+so its numbers describe the bot that trades. `--compare` runs both causal pivot
+modes alongside the archived look-ahead engine, which sizes how much of the
+published edge was hindsight. A `test_step_matches_vectorised_path` test pins the
+two code paths together.
 
 Real orders need all three of `MODE=live`, API keys, and
 `I_UNDERSTAND_LIVE_RISK=yes`; anything less and the bot refuses to start.

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from live.config import Config
 from live.engine import (ACTION_ENTER_LONG, ACTION_ENTER_SHORT, ACTION_EXIT,
                          FLAT, LONG, SHORT, LiveSignalEngine, SymbolState)
+from live.selftest import synth
 
 TF = 300_000
 
@@ -137,6 +138,37 @@ def test_engine_never_reads_the_forming_bar():
     extended = pd.concat([df, bars(closes[:5] * 3.0, start_ts=int(df.index[-1]) + TF)])
     b = eng.step("X", extended.iloc[: len(df)], 1.0, SymbolState(), mutate=False)
     assert (a.action, a.price) == (b.action, b.price)
+
+
+def test_step_matches_vectorised_path():
+    """The backtester walks decide_at; the bot calls step. They must agree.
+
+    Without this, a backtest result would describe a different rule than the
+    one that trades.
+    """
+    for mode in ("donchian", "fractal_confirmed"):
+        eng = LiveSignalEngine(pivot_mode=mode, timeframe_ms=TF)
+        alt, btc = synth(n=500, seed=21, start=2000.0), synth(n=500, seed=3, start=60000.0)
+        gate = eng.gate_series(btc["close"].to_numpy(dtype=float))
+        ind = eng.indicators(alt)
+
+        streamed, vector = [], []
+        st_a, st_b = SymbolState(), SymbolState()
+        for i in range(eng.min_bars, len(alt)):
+            a = eng.step("X", alt.iloc[: i + 1], float(gate[i]), st_a)
+            streamed.append((a.action, a.reason, round(a.price, 10)))
+            _apply(eng, st_a, a)
+            b = eng.decide_at("X", ind, i, float(gate[i]), st_b)
+            vector.append((b.action, b.reason, round(b.price, 10)))
+            _apply(eng, st_b, b)
+        assert streamed == vector, f"{mode}: streaming and vectorised paths diverged"
+
+
+def _apply(eng, state, dec):
+    if dec.action == ACTION_EXIT:
+        eng.close_position(state, dec.bar_ts)
+    elif dec.side != FLAT:
+        eng.open_position(state, dec.side, dec.price, dec.bar_ts, 1.0)
 
 
 def main() -> int:

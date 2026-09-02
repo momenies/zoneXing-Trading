@@ -61,6 +61,23 @@ class SymbolState:
 
 
 @dataclass
+class Indicators:
+    """Vectorised inputs for the decision rule, computed once per series."""
+    ts: np.ndarray
+    hi: np.ndarray
+    lo: np.ndarray
+    cl: np.ndarray
+    fast: np.ndarray
+    slow: np.ndarray
+    atr: np.ndarray
+    dip: np.ndarray
+    peak: np.ndarray
+
+    def __len__(self) -> int:
+        return len(self.cl)
+
+
+@dataclass
 class Decision:
     symbol: str
     action: str = ACTION_HOLD
@@ -160,38 +177,44 @@ class LiveSignalEngine:
 
     # ── per-bar decision ────────────────────────────────────────────────
 
-    def step(
+    def indicators(self, df: pd.DataFrame) -> Indicators:
+        """Compute every decision input for a whole series in one pass.
+
+        Both callers use this: ``step`` (live, newest bar) and the backtester
+        (every bar), so a backtest exercises the same rule that trades.
+        """
+        hi = df["high"].to_numpy(dtype=float)
+        lo = df["low"].to_numpy(dtype=float)
+        cl = df["close"].to_numpy(dtype=float)
+        dip, peak = self._pivots(hi, lo)
+        return Indicators(
+            ts=df.index.to_numpy(dtype="int64"), hi=hi, lo=lo, cl=cl,
+            fast=self._ema(cl, self.fast_ema), slow=self._ema(cl, self.slow_ema),
+            atr=self._atr(hi, lo, cl, self.atr_period), dip=dip, peak=peak,
+        )
+
+    def decide_at(
         self,
         symbol: str,
-        df: pd.DataFrame,
+        ind: Indicators,
+        i: int,
         gate: float,
         state: SymbolState,
         mutate: bool = True,
     ) -> Decision:
-        """Evaluate the newest CLOSED bar of ``df`` and return the action.
+        """The decision rule for bar ``i``. Reads no index above ``i``.
 
-        ``df`` must hold closed bars only, indexed by open-time in ms, with
-        columns open/high/low/close.  Exit checks run first (mirroring the
-        backtest loop), then the gate-flip exit, then entry.
+        Exit checks run first (mirroring the archived backtest loop), then the
+        gate-flip exit, then entry.
         """
-        n = len(df)
         d = Decision(symbol=symbol, gate=gate)
-        if n < self.min_bars:
-            d.reason = f"warming up ({n}/{self.min_bars} bars)"
-            return d
-
-        hi = df["high"].to_numpy(dtype=float)
-        lo = df["low"].to_numpy(dtype=float)
-        cl = df["close"].to_numpy(dtype=float)
-        i = n - 1
-        bar_ts = int(df.index[i])
-        d.price = float(cl[i])
+        bar_ts = int(ind.ts[i])
+        d.price = float(ind.cl[i])
         d.bar_ts = bar_ts
 
-        fast = self._ema(cl, self.fast_ema)
-        slow = self._ema(cl, self.slow_ema)
-        atr = self._atr(hi, lo, cl, self.atr_period)
-        dip, peak = self._pivots(hi, lo)
+        hi, lo, cl = ind.hi, ind.lo, ind.cl
+        fast, slow, atr = ind.fast, ind.slow, ind.atr
+        dip, peak = ind.dip, ind.peak
 
         pos = state.position
         tf = self.timeframe_ms
@@ -261,6 +284,25 @@ class LiveSignalEngine:
         if mutate:
             state.last_bar_ts = bar_ts
         return d
+
+    def step(
+        self,
+        symbol: str,
+        df: pd.DataFrame,
+        gate: float,
+        state: SymbolState,
+        mutate: bool = True,
+    ) -> Decision:
+        """Evaluate the newest CLOSED bar of ``df``.
+
+        ``df`` must hold closed bars only, indexed by open-time in ms, with
+        columns open/high/low/close.
+        """
+        n = len(df)
+        if n < self.min_bars:
+            return Decision(symbol=symbol, gate=gate,
+                            reason=f"warming up ({n}/{self.min_bars} bars)")
+        return self.decide_at(symbol, self.indicators(df), n - 1, gate, state, mutate)
 
     # ── helpers used by the trader ──────────────────────────────────────
 

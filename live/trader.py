@@ -75,12 +75,16 @@ class Trader:
     # ── wiring ──────────────────────────────────────────────────────────
 
     def connect(self) -> None:
-        from .broker import MarketData, make_broker
+        from .broker import MarketData, make_broker, preflight
         self.data = MarketData(self.cfg)
         self.broker = make_broker(self.cfg, self.data)
         log.info("connected to %s (%s, %s mode%s)", self.cfg.exchange_id,
                  self.cfg.market_type, self.broker.kind,
                  ", TESTNET" if self.cfg.testnet else "")
+
+        for problem in preflight(self.cfg, self.data, self.broker):
+            log.warning("PREFLIGHT: %s", problem)
+            self.notifier.send(f"⚠️ zoneXing preflight: {problem}")
 
     # ── persistence ─────────────────────────────────────────────────────
 

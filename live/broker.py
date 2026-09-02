@@ -281,3 +281,50 @@ class LiveBroker(BaseBroker):
 
 def make_broker(cfg: Config, data: MarketData) -> BaseBroker:
     return LiveBroker(cfg, data) if cfg.is_live else PaperBroker(cfg, data)
+
+
+def preflight(cfg: Config, data: MarketData, broker: BaseBroker) -> List[str]:
+    """Check the venue can actually do what the config asks, before trading.
+
+    Exchanges differ in what ccxt exposes: some have no reduce-only stop orders,
+    some have no perps at all. Finding that out from a rejected order mid-trade
+    is worse than finding it out at startup.
+    """
+    ex = data.ex
+    problems: List[str] = []
+
+    tfs = getattr(ex, "timeframes", None) or {}
+    if tfs and cfg.timeframe not in tfs:
+        problems.append(f"{cfg.exchange_id} does not offer the {cfg.timeframe} timeframe")
+
+    for code in [cfg.gate_symbol] + list(cfg.symbols):
+        symbol = cfg.ccxt_symbol(code)
+        if symbol not in ex.markets:
+            problems.append(f"{symbol} is not listed on {cfg.exchange_id} "
+                            f"({cfg.market_type}) — check MARKET_TYPE and the symbol")
+
+    if cfg.market_type == "swap" and not ex.has.get("fetchOHLCV"):
+        problems.append(f"{cfg.exchange_id} does not expose OHLCV via ccxt")
+
+    if cfg.is_live:
+        if cfg.market_type == "swap":
+            if not ex.has.get("fetchPositions"):
+                problems.append(
+                    f"{cfg.exchange_id} does not expose fetchPositions — restart "
+                    "reconciliation cannot verify open positions against the exchange")
+            if cfg.leverage != 1 and not ex.has.get("setLeverage"):
+                problems.append(f"{cfg.exchange_id} does not support setLeverage via ccxt; "
+                                "set the leverage manually in the exchange UI")
+        if cfg.protective_orders:
+            supports_stops = any(ex.has.get(k) for k in (
+                "createStopLossOrder", "createOrderWithTakeProfitAndStopLoss",
+                "createTriggerOrder", "createStopOrder"))
+            if cfg.market_type != "swap":
+                problems.append("PROTECTIVE_ORDERS is on but spot markets get no "
+                                "exchange-side SL/TP — exits are bot-managed only")
+            elif not supports_stops:
+                problems.append(
+                    f"{cfg.exchange_id} does not advertise stop/take-profit orders in ccxt — "
+                    "protective orders will likely be REJECTED. If the bot or the server "
+                    "stops, an open position runs with no stop-loss on the exchange.")
+    return problems
