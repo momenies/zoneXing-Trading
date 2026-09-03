@@ -52,7 +52,7 @@ def main(argv: Optional[list] = None) -> int:
     from .broker import PaperBroker
 
     cfg = Config(mode="paper", market_type="swap",
-                 symbols=["ETH-USDT", "SOL-USDT"], invest_frac=0.2,
+                 symbols=["ETH-USDT", "SOL-USDT"], invest_frac=0.05,
                  paper_equity=1200.0, leverage=1.0,
                  state_dir=Path(__file__).resolve().parent.parent / "state" / "demo")
     cfg.validate()

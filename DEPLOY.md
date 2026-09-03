@@ -93,8 +93,8 @@ python -m tools.backtest --exchange mexc --days 180 --compare
 |---|---|---|
 | 1. ورقي | `MODE=paper` | 5–7 أيام كاملة |
 | 2. تجريبي بالمنصة | `MODE=live` + `TESTNET=true` | 3–5 أيام |
-| 3. حقيقي مصغّر | `MODE=live`, `INVEST_FRAC=0.05`, `LEVERAGE=1` | أسبوعان |
-| 4. الحجم الكامل | ارفع `INVEST_FRAC` تدريجياً | بعد مراجعة `state/trades.csv` |
+| 3. حقيقي مصغّر | `MODE=live`, `LEVERAGE=1` (الافتراضي `INVEST_FRAC=0.05` كما هو) | أسبوعان |
+| 4. الحجم الكامل | ارفع `INVEST_FRAC` تدريجياً (0.05 → 0.10 → …) | بعد 30+ صفقة في `state/trades.csv` |
 
 لتفعيل الأوامر الحقيقية لازم **ثلاثة** شروط معاً، وإلا يرفض البوت الإقلاع:
 

@@ -86,7 +86,7 @@ class Config:
     tp_pct: float = 0.04
     cooldown: int = 3
     min_hold: int = 3
-    invest_frac: float = 0.2
+    invest_frac: float = 0.05
     pivot_mode: str = "donchian"     # donchian (causal) | fractal_confirmed
 
     # ── execution / risk ────────────────────────────────────────────────
@@ -179,7 +179,7 @@ def load_config(env_file: str | os.PathLike | None = None) -> Config:
         tp_pct=_f("TP_PCT", 0.04),
         cooldown=_i("COOLDOWN", 3),
         min_hold=_i("MIN_HOLD", 3),
-        invest_frac=_f("INVEST_FRAC", 0.2),
+        invest_frac=_f("INVEST_FRAC", 0.05),
         pivot_mode=_s("PIVOT_MODE", "donchian").lower(),
         leverage=_f("LEVERAGE", 1.0),
         paper_equity=_f("PAPER_EQUITY", 1200.0),
