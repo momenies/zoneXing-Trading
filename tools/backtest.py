@@ -163,7 +163,7 @@ class Result:
 
 
 def simulate(engine: LiveSignalEngine, data: Dict[str, pd.DataFrame], gate_code: str,
-             label: str, initial: float = 1200.0, invest_frac: float = 0.2,
+             label: str, initial: float = 1200.0, invest_frac: float = 0.05,
              leverage: float = 1.0, taker: float = 0.0005,
              slippage: float = 0.0005) -> Result:
     """Walk every bar through ``engine.decide_at`` — the live decision rule."""
@@ -221,7 +221,7 @@ def simulate(engine: LiveSignalEngine, data: Dict[str, pd.DataFrame], gate_code:
 
 
 def simulate_archived(data: Dict[str, pd.DataFrame], gate_code: str, initial: float = 1200.0,
-                      invest_frac: float = 0.2, leverage: float = 1.0,
+                      invest_frac: float = 0.05, leverage: float = 1.0,
                       taker: float = 0.0005, slippage: float = 0.0005) -> Result:
     """Reference run of the archived look-ahead engine, for comparison only.
 
@@ -317,7 +317,7 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--compare", action="store_true",
                     help="run both causal modes plus the archived look-ahead engine")
     ap.add_argument("--initial", type=float, default=1200.0)
-    ap.add_argument("--invest-frac", type=float, default=0.2)
+    ap.add_argument("--invest-frac", type=float, default=0.05)
     ap.add_argument("--leverage", type=float, default=1.0)
     ap.add_argument("--taker", type=float, default=0.0005)
     ap.add_argument("--slippage", type=float, default=0.0005)
