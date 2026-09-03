@@ -1,0 +1,28 @@
+# systemd unit — install with:
+#   sudo cp deploy/zonexing.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now zonexing
+[Unit]
+Description=zoneXing Trading bot (BTC-gated 5m altcoin strategy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zonexing
+WorkingDirectory=/opt/zonexing-trading
+EnvironmentFile=/opt/zonexing-trading/.env
+ExecStart=/opt/zonexing-trading/.venv/bin/python -m live.trader
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/zonexing-trading/state
+
+[Install]
+WantedBy=multi-user.target
